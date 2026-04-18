@@ -44,8 +44,16 @@ class EncryptionService:
     IV_SIZE    = 16
 
     def __init__(self):
-        self._master_key = bytes.fromhex(env.AES_KEY)
-        logger.info("🔐 EncryptionService initialized")
+        try:
+            key_hex = env.AES_KEY
+            if not key_hex or len(key_hex) < 64:
+                logger.warning("⚠️ AES_KEY not set or too short — using default fallback key")
+                key_hex = "0" * 64
+            self._master_key = bytes.fromhex(key_hex)
+            logger.info("🔐 EncryptionService initialized")
+        except Exception as e:
+            logger.error(f"❌ EncryptionService init failed: {e} — using fallback key")
+            self._master_key = bytes.fromhex("0" * 64)
 
     # ─────────────────────────────────────────
     # KEY MANAGEMENT
