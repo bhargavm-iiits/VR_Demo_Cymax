@@ -28,11 +28,19 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup and shutdown events"""
-    logger.info("🚀 Starting VR Cinema Backend...")
-    await init_db()
-    logger.info(f"✅ Server ready on {env.HOST}:{env.PORT}")
-    yield
-    logger.info("🔴 Shutting down VR Cinema Backend...")
+    try:
+        logger.info("🚀 Starting VR Cinema Backend...")
+        logger.info("📡 Initializing database...")
+        await init_db()
+        logger.info(f"✅ Server ready")
+        yield
+    except Exception as e:
+        logger.error(f"❌ CRITICAL STARTUP ERROR: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
+        raise e
+    finally:
+        logger.info("🔴 Shutting down VR Cinema Backend...")
 
 # Create FastAPI app
 app = FastAPI(

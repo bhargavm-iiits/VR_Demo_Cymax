@@ -18,7 +18,6 @@ class SubscriptionTier(str, enum.Enum):
 class User(Base):
     __tablename__ = "users"
     
-    sessions = relationship("Session", back_populates="user")
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     username = Column(String(50), unique=True, nullable=False, index=True)
     email = Column(String(100), unique=True, nullable=False, index=True)

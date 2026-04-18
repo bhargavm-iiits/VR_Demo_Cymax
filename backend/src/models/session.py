@@ -19,8 +19,6 @@ class Session(Base):
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     movie_id = Column(Integer, nullable=True)
     
-    user = relationship("User", back_populates="sessions")
-    
     # Device Info
     vr_device_id = Column(String(100), nullable=True)
     web_controller_id = Column(String(100), nullable=True)
