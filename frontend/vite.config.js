@@ -25,9 +25,9 @@ export default defineConfig({
       'Cache-Control': 'public, max-age=3600',
     },
     proxy: {
-      '/api': 'http://localhost:8000',
+      '/api': 'https://vr-demo-cymax.onrender.com',
       '/socket.io': {
-        target: 'http://localhost:8000',
+        target: 'https://vr-demo-cymax.onrender.com',
         ws: true,
       },
     },
