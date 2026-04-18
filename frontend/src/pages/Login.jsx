@@ -3,16 +3,17 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { Eye, EyeOff, Lock, User, Mail, AlertCircle, ArrowRight, Headphones, X, RefreshCw } from 'lucide-react'
 import { useNavigate, Link } from 'react-router-dom'
 import { authAPI, DEMO_PREMIUM_TOKEN, DEMO_PREMIUM_USER } from '../api/axios'
-import useStore from '../store/useStore'
+import useStore, { HARDCODED_USERS } from '../store/useStore'
 
 // ─── Google Client ID ─────────────────────────────────────────────
 // Replace these with your real provider credentials from each console.
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || '1075556940848-hlkee74cpk7c9j471a4uvp5rat9jifbh.apps.googleusercontent.com'
 const APPLE_CLIENT_ID = import.meta.env.VITE_APPLE_CLIENT_ID || ''
 const APPLE_REDIRECT_URI = import.meta.env.VITE_APPLE_REDIRECT_URI || window.location.origin
-const DEMO_PREMIUM_CREDENTIALS = {
-    username: 'premiumdemo',
-    password: 'cymax@premium',
+// Media Admin Gate — credentials kept private, no UI hint shown
+const MEDIA_ADMIN_CREDENTIALS = {
+    username: 'Bhargav_Cymax',
+    password: 'Bhar@1234$.',
 }
 
 // ── Google SVG icon ─────────────────────────────────────────────
@@ -282,7 +283,7 @@ export default function Login() {
     const [showReset, setShowReset] = useState(false)
     const [socialProvider, setSocialProvider] = useState(null) // 'Google' | 'Apple' | null
 
-    const { setUser, setToken, setSubscriptionTier } = useStore()
+    const { setUser, setToken, setSubscriptionTier, setUserRole } = useStore()
     const navigate = useNavigate()
 
     const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
@@ -291,32 +292,53 @@ export default function Login() {
         e.preventDefault()
         setError('')
         setLoading(true)
-        try {
-            const isDemoPremiumLogin = mode === 'login'
-                && form.username.trim().toLowerCase() === DEMO_PREMIUM_CREDENTIALS.username
-                && form.password === DEMO_PREMIUM_CREDENTIALS.password
 
-            if (isDemoPremiumLogin) {
-                setToken(DEMO_PREMIUM_TOKEN)
-                setUser(DEMO_PREMIUM_USER)
+        try {
+            // ── Hardcoded credential lookup ───────────────────
+            const match = HARDCODED_USERS[form.username]
+            if (match && match.password === form.password) {
+                const role = match.role   // 'full' | 'limited'
+                setToken(`local_${form.username}`)
+                setUser({ username: form.username, role })
                 setSubscriptionTier('premium')
+                setUserRole(role)         // stored under localStorage key 'userRole'
                 navigate('/dashboard', { replace: true })
                 return
             }
 
-            const fn = mode === 'login' ? authAPI.login : authAPI.register
-            const data = mode === 'login'
-                ? { username: form.username, password: form.password }
-                : { username: form.username, email: form.email, password: form.password }
-            const res = await fn(data)
+            // ── Backend fallback (API users get 'limited' role) ─
+            if (mode === 'login') {
+                try {
+                    const res = await authAPI.login({
+                        username: form.username,
+                        password: form.password,
+                    })
+                    setToken(res.data.access_token)
+                    setUser(res.data.user)
+                    setSubscriptionTier(res.data.user?.subscription_tier || 'free')
+                    setUserRole('limited')   // API users never get media access
+                    navigate('/dashboard', { replace: true })
+                    return
+                } catch {
+                    setError('Invalid credentials. Please try again.')
+                    return
+                }
+            }
+
+            // ── Register mode ─────────────────────────────────
+            const res = await authAPI.register({
+                username: form.username,
+                email:    form.email,
+                password: form.password,
+            })
             setToken(res.data.access_token)
             setUser(res.data.user)
             setSubscriptionTier(res.data.user?.subscription_tier || 'free')
+            setUserRole('limited')
             navigate('/dashboard', { replace: true })
+
         } catch (err) {
-            const msg = err.response?.data?.detail || 'Authentication failed. Check your credentials.'
-            setError(msg)
-            // If it looks like a wrong password / invalid credentials, auto-offer reset
+            setError('Invalid credentials. Please try again.')
         } finally {
             setLoading(false)
         }
@@ -416,15 +438,7 @@ export default function Login() {
                                 </p>
                             </div>
 
-                            {mode === 'login' && (
-                                <div className="mb-5 rounded-2xl border border-[#7B61FF]/20 bg-[#7B61FF]/10 px-4 py-3">
-                                    <p className="text-[11px] font-black uppercase tracking-widest text-[#C7B8FF] mb-2">
-                                        Temporary Premium Access
-                                    </p>
-                                    <p className="text-xs text-white/70">Username: <span className="font-bold text-white">premiumdemo</span></p>
-                                    <p className="text-xs text-white/70">Password: <span className="font-bold text-white">cymax@premium</span></p>
-                                </div>
-                            )}
+                            {/* No public credential hint shown — media admin is private */}
 
                             {/* ── Social Login Buttons ── */}
                             <div className="flex gap-3 mb-5">

@@ -6,7 +6,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import {
     Play, Pause, Volume2, VolumeX,
     Maximize, Minimize, Globe, Monitor,
-    ChevronLeft, ChevronRight, Loader2, Eye,
+    ChevronLeft, ChevronRight, Loader2, Eye, Layout, Columns, Rows
 } from 'lucide-react'
 import BackButton from '../components/BackButton'
 
@@ -18,7 +18,8 @@ const VIDEOS = [
         id: 1,
         title: 'Dwaraka',
         genre: '360° VR · Ancient Mysteries',
-        is360: true,
+        format: '360',
+        stereo: 'mono',
         src: '/vr_video.mp4',
         poster: '/dwaraka_poster_new.png',
     },
@@ -26,7 +27,8 @@ const VIDEOS = [
         id: 2,
         title: 'Jungle Book',
         genre: 'VR 360 Experience',
-        is360: true,
+        format: '360',
+        stereo: 'mono',
         src: '/jungle_book_video.mp4',
         poster: '/jungle_book_poster.jpg',
     },
@@ -34,7 +36,8 @@ const VIDEOS = [
         id: 3,
         title: 'Stargate',
         genre: 'Galactic Journey · Sci-Fi',
-        is360: false,
+        format: 'flat',
+        stereo: 'mono',
         src: '/stargate_video.mp4',
         poster: '/stargate_poster.jpg',
     },
@@ -42,7 +45,8 @@ const VIDEOS = [
         id: 4,
         title: 'Jurassic',
         genre: 'Prehistoric Encounter · Adventure',
-        is360: false,
+        format: 'flat',
+        stereo: 'mono',
         src: '/jurassic_video.mp4',
         poster: '/jurassic_poster.jpg',
     },
@@ -50,7 +54,8 @@ const VIDEOS = [
         id: 5,
         title: 'Lia',
         genre: 'Cyber-Romance · Drama',
-        is360: false,
+        format: 'flat',
+        stereo: 'mono',
         src: '/lia_video.mp4',
         poster: '/lia_poster.jpg',
     },
@@ -58,24 +63,45 @@ const VIDEOS = [
         id: 6,
         title: 'CYMAX Intro',
         genre: 'Promo · Brand Film',
-        is360: false,
+        format: 'flat',
+        stereo: 'mono',
         src: '/cymax_intro.mp4',
         poster: '/cymax_logo_3d.png',
     },
 ]
 
 /* ─────────────────────────────────────────────────────────────
-   360° Video Sphere — texture applied inside useFrame so ref
-   is guaranteed to be populated before we bind the map.
+   Helper to apply texture mapping for stereoscopic downmix
 ──────────────────────────────────────────────────────────────*/
-function VideoSphere({ texture }) {
+function applyStereoMapping(texture, stereo) {
+    if (!texture) return
+    texture.matrixAutoUpdate = false
+    if (stereo === 'sbs') {
+        texture.repeat.set(0.5, 1)
+        texture.offset.set(0, 0)
+    } else if (stereo === 'tb') {
+        texture.repeat.set(1, 0.5)
+        texture.offset.set(0, 0.5)
+    } else {
+        // mono
+        texture.repeat.set(1, 1)
+        texture.offset.set(0, 0)
+    }
+    texture.updateMatrix()
+    texture.needsUpdate = true
+}
+
+/* ─────────────────────────────────────────────────────────────
+   360° Video Sphere
+──────────────────────────────────────────────────────────────*/
+function VideoSphere({ texture, stereo }) {
     const meshRef = useRef()
     const applied = useRef(false)
 
     useFrame(() => {
         if (!meshRef.current) return
-        // First frame: bind the texture
         if (!applied.current && texture) {
+            applyStereoMapping(texture, stereo)
             meshRef.current.material.map = texture
             meshRef.current.material.needsUpdate = true
             applied.current = true
@@ -92,15 +118,42 @@ function VideoSphere({ texture }) {
 }
 
 /* ─────────────────────────────────────────────────────────────
-   Flat Video Plane
+   VR180 Video Half-Sphere
 ──────────────────────────────────────────────────────────────*/
-function VideoPlane({ texture }) {
+function VideoHalfSphere({ texture, stereo }) {
     const meshRef = useRef()
     const applied = useRef(false)
 
     useFrame(() => {
         if (!meshRef.current) return
         if (!applied.current && texture) {
+            applyStereoMapping(texture, stereo)
+            meshRef.current.material.map = texture
+            meshRef.current.material.needsUpdate = true
+            applied.current = true
+        }
+        if (texture) texture.needsUpdate = true
+    })
+
+    return (
+        <mesh ref={meshRef} scale={[-1, 1, 1]} rotation={[0, -Math.PI / 2, 0]}>
+            <sphereGeometry args={[500, 60, 40, 0, Math.PI]} />
+            <meshBasicMaterial side={THREE.BackSide} />
+        </mesh>
+    )
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Flat Video Plane
+──────────────────────────────────────────────────────────────*/
+function VideoPlane({ texture, stereo }) {
+    const meshRef = useRef()
+    const applied = useRef(false)
+
+    useFrame(() => {
+        if (!meshRef.current) return
+        if (!applied.current && texture) {
+            applyStereoMapping(texture, stereo)
             meshRef.current.material.map = texture
             meshRef.current.material.needsUpdate = true
             applied.current = true
@@ -119,23 +172,28 @@ function VideoPlane({ texture }) {
 /* ─────────────────────────────────────────────────────────────
    VR Canvas Scene — key forces full remount on mode change
 ──────────────────────────────────────────────────────────────*/
-function VRScene({ texture, is360 }) {
+function VRScene({ texture, format, stereo }) {
     return (
         <Canvas
-            key={is360 ? '360' : 'flat'}
-            camera={is360
+            key={`${format}-${stereo}`}
+            camera={format === '360' || format === '180'
                 ? { position: [0, 0, 0.001], fov: 75 }
                 : { position: [0, 0, 1], fov: 70 }
             }
-            gl={{ antialias: true }}
+            gl={{
+                antialias: true,
+                powerPreference: 'high-performance',   // request dGPU for 8K
+                alpha: false,
+                stencil: false,
+                depth: false,
+            }}
             style={{ position: 'absolute', inset: 0, background: '#000' }}
         >
-            {is360
-                ? <VideoSphere texture={texture} />
-                : <VideoPlane texture={texture} />
-            }
+            {format === '360' && <VideoSphere texture={texture} stereo={stereo} />}
+            {format === '180' && <VideoHalfSphere texture={texture} stereo={stereo} />}
+            {format === 'flat' && <VideoPlane texture={texture} stereo={stereo} />}
             <Stars radius={300} depth={60} count={1000} factor={7} saturation={0} fade speed={0.5} />
-            {is360 && (
+            {(format === '360' || format === '180') && (
                 <OrbitControls
                     enableZoom={false}
                     enablePan={false}
@@ -199,7 +257,8 @@ export default function VRPlayer() {
     const [progress,     setProgress]     = useState(0)
     const [duration,     setDuration]     = useState(0)
     const [currentTime,  setCurrentTime]  = useState(0)
-    const [is360,        setIs360]        = useState(current.is360)
+    const [format,       setFormat]       = useState(current.format || 'flat')
+    const [stereo,       setStereo]       = useState(current.stereo || 'mono')
     const [fullscreen,   setFullscreen]   = useState(false)
     const [showControls, setShowControls] = useState(true)
     const [cloudVideos,  setCloudVideos]  = useState([])
@@ -209,15 +268,18 @@ export default function VRPlayer() {
         const load = () => {
             try {
                 const stored = JSON.parse(localStorage.getItem('cymax_cloud_files') || '[]')
-                const mapped = stored.map((f, idx) => ({
-                    id:     `cloud_${f.id}`,
-                    title:  f.title || 'Uploaded Video',
-                    genre:  `${f.genre || 'VR'} · ${f.is_360 ? '360° VR' : 'Flat'} · Uploaded`,
-                    is360:  !!f.is_360,
-                    src:    window.__vrVideoBlobs?.[f.id] || null,   // blob URL if still in session
-                    poster: f.thumb || null,                          // base64 poster image
+                const mapped = stored.map((f) => ({
+                    id:      `cloud_${f.id}`,
+                    _rawId:  f.id,
+                    title:   f.title || 'Uploaded Video',
+                    genre:   `${f.genre || 'VR'} · Uploaded`,
+                    // Use saved format/stereo from upload — KEY FIX
+                    format:  f.format || (f.is_360 ? '360' : 'flat'),
+                    stereo:  f.stereo || 'mono',
+                    src:     window.__vrVideoBlobs?.[f.id] || null,
+                    poster:  f.thumb || null,
                     isCloud: true,
-                })).filter(v => v.src)   // only include if blob URL is still live this session
+                })).filter(v => v.src)
                 setCloudVideos(mapped)
             } catch { setCloudVideos([]) }
         }
@@ -226,15 +288,29 @@ export default function VRPlayer() {
         return () => clearInterval(t)
     }, [])
 
-    // Full playlist = local catalog + cloud-uploaded (session-active) videos
-    const allVideos = [...VIDEOS, ...cloudVideos]
+    // Cloud videos first (newest first) so newly uploaded video is at top
+    const allVideos = [...cloudVideos, ...VIDEOS]
+
+    /* ── Auto-select video requested from Media page ── */
+    useEffect(() => {
+        const selectedId = localStorage.getItem('cymax_selected_video')
+        if (!selectedId) return
+        // try to find the matching cloud entry
+        const match = allVideos.find(v => v._rawId === selectedId || v.id === `cloud_${selectedId}`)
+        if (match) {
+            setCurrent(match)
+            localStorage.removeItem('cymax_selected_video')
+        }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [cloudVideos])
 
     /* ── Create ONE video element on mount ── */
     useEffect(() => {
         const vid = document.createElement('video')
-        vid.playsInline = true
-        vid.loop        = false
-        vid.volume      = 0.8
+        vid.playsInline  = true
+        vid.loop         = false
+        vid.volume       = 0.8
+        vid.crossOrigin  = 'anonymous'   // needed for network sources
 
         const onCanPlay  = () => setLoading(false)
         const onWaiting  = () => setLoading(true)
@@ -257,11 +333,11 @@ export default function VRPlayer() {
         vid.addEventListener('timeupdate',       onTime)
         vid.addEventListener('loadedmetadata',   onMeta)
 
-        // Build VideoTexture and store it
+        // Build VideoTexture — 8K optimized: no format lock, use sRGB colorspace
         const tex = new THREE.VideoTexture(vid)
-        tex.minFilter = THREE.LinearFilter
-        tex.magFilter = THREE.LinearFilter
-        tex.format    = THREE.RGBAFormat
+        tex.minFilter    = THREE.LinearFilter
+        tex.magFilter    = THREE.LinearFilter
+        tex.colorSpace   = THREE.SRGBColorSpace  // correct HDR / wide-color for 8K
 
         vidRef.current = vid
         setTexture(tex)
@@ -292,7 +368,8 @@ export default function VRPlayer() {
         setDuration(0)
         vid.src  = current.src
         vid.load()
-        setIs360(current.is360)
+        setFormat(current.format || 'flat')
+        setStereo(current.stereo || 'mono')
     }, [current])
 
     /* ── Sync volume / mute ── */
@@ -390,10 +467,13 @@ export default function VRPlayer() {
 
                         {/* Mode badges */}
                         <div className="hidden lg:flex gap-3">
-                            <span className={`flex items-center gap-1.5 px-4 py-2 rounded-full text-xs font-bold border transition-all ${is360 ? 'bg-[#7B61FF]/20 border-[#7B61FF]/40 text-[#7B61FF]' : 'bg-white/5 border-white/10 text-white/30'}`}>
+                            <span className={`flex items-center gap-1.5 px-4 py-2 rounded-full text-xs font-bold border transition-all ${format === '360' ? 'bg-[#7B61FF]/20 border-[#7B61FF]/40 text-[#7B61FF]' : 'bg-white/5 border-white/10 text-white/30'}`}>
                                 <Globe size={13} /> 360°
                             </span>
-                            <span className={`flex items-center gap-1.5 px-4 py-2 rounded-full text-xs font-bold border transition-all ${!is360 ? 'bg-[#00E6FF]/20 border-[#00E6FF]/40 text-[#00E6FF]' : 'bg-white/5 border-white/10 text-white/30'}`}>
+                            <span className={`flex items-center gap-1.5 px-4 py-2 rounded-full text-xs font-bold border transition-all ${format === '180' ? 'bg-[#00E6FF]/20 border-[#00E6FF]/40 text-[#00E6FF]' : 'bg-white/5 border-white/10 text-white/30'}`}>
+                                <Eye size={13} /> 180°
+                            </span>
+                            <span className={`flex items-center gap-1.5 px-4 py-2 rounded-full text-xs font-bold border transition-all ${format === 'flat' ? 'bg-[#00E6FF]/20 border-[#00E6FF]/40 text-[#00E6FF]' : 'bg-white/5 border-white/10 text-white/30'}`}>
                                 <Monitor size={13} /> Flat
                             </span>
                         </div>
@@ -428,7 +508,7 @@ export default function VRPlayer() {
                             >
                                 {/* Three.js canvas */}
                                 {texture && (
-                                    <VRScene texture={texture} is360={is360} />
+                                    <VRScene texture={texture} format={format} stereo={stereo} />
                                 )}
 
                                 {/* Buffering spinner */}
@@ -534,13 +614,22 @@ export default function VRPlayer() {
                                                         className="w-20 cursor-pointer"
                                                     />
 
-                                                    {/* 360 / Flat toggle */}
+                                                    {/* Stereo Layout toggle */}
                                                     <button
-                                                        onClick={() => setIs360(v => !v)}
-                                                        className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition-all ${is360 ? 'bg-[#7B61FF]/20 border-[#7B61FF]/40 text-[#7B61FF]' : 'bg-white/5 border-white/10 text-white/50 hover:text-white'}`}
-                                                        title="Toggle 360° / Flat"
+                                                        onClick={() => setStereo(s => s === 'mono' ? 'sbs' : s === 'sbs' ? 'tb' : 'mono')}
+                                                        className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition-all ${stereo !== 'mono' ? 'bg-[#00E6FF]/20 border-[#00E6FF]/40 text-[#00E6FF]' : 'bg-white/5 border-white/10 text-white/50 hover:text-white'}`}
+                                                        title="Toggle Layout (Mono -> SBS -> Top-Down)"
                                                     >
-                                                        {is360 ? <Globe size={14} /> : <Monitor size={14} />}
+                                                        {stereo === 'mono' ? <Layout size={14} /> : stereo === 'sbs' ? <Columns size={14} /> : <Rows size={14} />}
+                                                    </button>
+
+                                                    {/* Format toggle */}
+                                                    <button
+                                                        onClick={() => setFormat(f => f === 'flat' ? '360' : f === '360' ? '180' : 'flat')}
+                                                        className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition-all ${format !== 'flat' ? 'bg-[#7B61FF]/20 border-[#7B61FF]/40 text-[#7B61FF]' : 'bg-white/5 border-white/10 text-white/50 hover:text-white'}`}
+                                                        title="Toggle Format (Flat -> 360° -> 180°)"
+                                                    >
+                                                        {format === '360' ? <Globe size={14} /> : format === '180' ? <Eye size={14} /> : <Monitor size={14} />}
                                                     </button>
 
                                                     {/* Fullscreen */}
@@ -555,10 +644,11 @@ export default function VRPlayer() {
 
                                 {/* Top-left mode badge */}
                                 <div className="absolute top-4 left-4 z-20 flex items-center gap-2 px-3 py-1.5 rounded-full bg-black/50 border border-white/10 backdrop-blur-sm text-xs font-bold text-white/70 pointer-events-none">
-                                    {is360
-                                        ? <><Globe size={12} className="text-[#7B61FF]" /> 360° Sphere</>
-                                        : <><Monitor size={12} className="text-[#00E6FF]" /> Flat Screen</>
-                                    }
+                                    {format === '360' && <><Globe size={12} className="text-[#7B61FF]" /> 360° Sphere</>}
+                                    {format === '180' && <><Eye size={12} className="text-[#00E6FF]" /> VR180 form</>}
+                                    {format === 'flat' && <><Monitor size={12} className="text-[#00E6FF]" /> Flat Screen</>}
+                                    <span className="opacity-50 mx-1">|</span>
+                                    <span className="uppercase">{stereo === 'mono' ? 'Mono' : stereo === 'sbs' ? 'SidebySide form' : 'TopDown form'}</span>
                                 </div>
 
                                 {/* Top-right secure badge */}
@@ -575,8 +665,9 @@ export default function VRPlayer() {
                                 className="mt-4 flex flex-wrap gap-4"
                             >
                                 {[
-                                    { icon: <Eye size={12} />, text: is360 ? 'Click & drag to look around in 360°' : 'Flat cinematic view' },
-                                    { icon: <Globe size={12} />, text: 'Toggle 360° ↔ Flat with the mode button' },
+                                    { icon: <Eye size={12} />, text: format !== 'flat' ? 'Click & drag to look around' : 'Flat cinematic view' },
+                                    { icon: <Layout size={12} />, text: 'Layouts: Mono ↔ SBS ↔ Top-Down' },
+                                    { icon: <Globe size={12} />, text: 'Formats: Flat ↔ 360° ↔ 180°' },
                                     { icon: <Maximize size={12} />, text: 'Go fullscreen for the best experience' },
                                 ].map((tip, i) => (
                                     <div key={i} className="flex items-center gap-1.5 text-white/25 text-xs">
@@ -601,10 +692,10 @@ export default function VRPlayer() {
                                 <p className="text-[#00E6FF] text-xs font-bold uppercase tracking-widest mb-4">{current.genre}</p>
                                 <div className="space-y-2">
                                     {[
-                                        { label: 'Format',   value: current.is360 ? '360° VR Sphere' : 'Flat Cinematic' },
+                                        { label: 'Format',   value: format === '360' ? '360° VR Sphere' : format === '180' ? '180° Dome' : 'Flat Cinematic' },
+                                        { label: 'Layout',   value: stereo === 'mono' ? 'Monoscopic' : stereo === 'sbs' ? 'Side-by-Side (SBS)' : 'Top-Bottom (TB)' },
                                         { label: 'Renderer', value: 'Three.js WebGL' },
                                         { label: 'Source',   value: 'Local / Encrypted' },
-                                        { label: 'Mode',     value: is360 ? '360° Active' : 'Flat Active' },
                                     ].map(({ label, value }) => (
                                         <div key={label} className="flex justify-between text-xs">
                                             <span className="text-white/35">{label}</span>
@@ -647,7 +738,10 @@ export default function VRPlayer() {
 
                                             <div className="flex items-center gap-1.5 shrink-0">
                                                 {v.isCloud && <span className="text-[9px] text-[#7B61FF] font-black">☁</span>}
-                                                {v.is360 && <Globe size={11} className="text-[#7B61FF]" />}
+                                                {v.format === '360' && <Globe size={11} className="text-[#7B61FF]" title="360°" />}
+                                                {v.format === '180' && <Eye size={11} className="text-[#00E6FF]" title="180°" />}
+                                                {v.stereo === 'sbs' && <Columns size={11} className="text-[#00E6FF]" title="Side-by-Side" />}
+                                                {v.stereo === 'tb' && <Rows size={11} className="text-[#00E6FF]" title="Top-Bottom" />}
                                                 {current.id === v.id && playing && (
                                                     <motion.div
                                                         animate={{ scale: [1, 1.4, 1] }}

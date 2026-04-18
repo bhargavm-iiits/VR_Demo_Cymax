@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Upload, Lock, Film, CheckCircle, X, Eye, EyeOff, AlertCircle, Play, Clock, Tag } from 'lucide-react'
 import useStore from '../store/useStore'
@@ -10,7 +11,19 @@ const DEV_ACCESS_CODE = 'Demoplayer'
 
 const GENRES = ['Action', 'Sci-Fi', 'Documentary', 'Drama', 'Adventure', 'Horror', 'Comedy', 'Animation']
 const RATINGS = ['G', 'PG', 'PG-13', 'R']
-const VR_FORMATS = ['mono', 'stereo_lr', 'stereo_tb']
+
+// Maps upload form vr_format → {format, stereo} used by VRPlayer
+const VR_FORMAT_OPTIONS = [
+    { value: 'mono',       label: 'Monoscopic (Normal / 2D)',     format: 'flat',  stereo: 'mono' },
+    { value: 'mono_360',   label: '360° Monoscopic (Sphere)',      format: '360',   stereo: 'mono' },
+    { value: 'stereo_lr',  label: 'Side-by-Side (SBS) — 3D',      format: 'flat',  stereo: 'sbs'  },
+    { value: 'stereo_lr_360', label: 'SBS 360° — 3D Sphere',       format: '360',   stereo: 'sbs'  },
+    { value: 'stereo_tb',  label: 'Top-Down (TB) — 3D',           format: 'flat',  stereo: 'tb'   },
+    { value: 'stereo_tb_360', label: 'Top-Down 360° — 3D Sphere',  format: '360',   stereo: 'tb'   },
+    { value: 'vr180',      label: 'VR180 Dome (180°)',            format: '180',   stereo: 'mono' },
+    { value: 'vr180_sbs',  label: 'VR180 SBS — 3D Dome',          format: '180',   stereo: 'sbs'  },
+]
+const VR_FORMAT_MAP = Object.fromEntries(VR_FORMAT_OPTIONS.map(o => [o.value, { format: o.format, stereo: o.stereo }]))
 
 
 
@@ -210,19 +223,24 @@ function UploadPanel({ onLogout }) {
         const entryId = Date.now().toString(36)
 
         // Create a blob URL for the local video so the player can play it this session
+        // Also revoke previous blob for same entry if it somehow existed
         if (file) {
             const blobUrl = URL.createObjectURL(file)
             window.__vrVideoBlobs[entryId] = blobUrl
         }
 
         // Save to cloud storage list (persisted in localStorage)
+        const vrMapping = VR_FORMAT_MAP[form.vr_format] || { format: 'flat', stereo: 'mono' }
         const entry = {
             id:            entryId,
             title:         form.title,
             description:   form.description,
             genre:         form.genre,
             rating:        form.rating,
-            is_360:        form.is_360,
+            vr_format:     form.vr_format,
+            format:        vrMapping.format,   // 'flat' | '360' | '180'
+            stereo:        vrMapping.stereo,   // 'mono' | 'sbs' | 'tb'
+            is_360:        vrMapping.format !== 'flat',
             tier:          form.required_subscription,
             size:          file?.size || 0,
             name:          file?.name || `${form.title}.mp4`,
@@ -233,7 +251,10 @@ function UploadPanel({ onLogout }) {
         const updated = [entry, ...cloudFiles]
         saveCloud(updated)
 
-        setResult({ success: true, movie: { title: form.title } })
+        // Auto-select the newly uploaded video — VRPlayer will load it when navigating
+        localStorage.setItem('cymax_selected_video', entryId)
+
+        setResult({ success: true, movie: { title: form.title }, vrFormat: form.vr_format })
         setForm({ title: '', description: '', duration: '', genre: 'Sci-Fi', rating: 'PG', vr_format: 'mono', is_360: true, required_subscription: 'basic' })
         setFile(null)
         setThumbBase64(null)
@@ -351,10 +372,17 @@ function UploadPanel({ onLogout }) {
                         </div>
                         <div className="grid grid-cols-2 gap-3">
                             <div>
-                                <label className={labelCls}>VR Format</label>
+                                <label className={labelCls}>VR Format / Layout *</label>
                                 <select value={form.vr_format} onChange={e => set('vr_format', e.target.value)} className={inputCls + ' cursor-pointer'}>
-                                    {VR_FORMATS.map(f => <option key={f}>{f}</option>)}
+                                    {VR_FORMAT_OPTIONS.map(o => (
+                                        <option key={o.value} value={o.value}>{o.label}</option>
+                                    ))}
                                 </select>
+                                <p className="text-white/20 text-[10px] mt-1 font-mono">
+                                    {VR_FORMAT_MAP[form.vr_format]?.stereo !== 'mono'
+                                        ? `▶ Will play as ${VR_FORMAT_OPTIONS.find(o=>o.value===form.vr_format)?.label}`
+                                        : 'Standard playback'}
+                                </p>
                             </div>
                             <div>
                                 <label className={labelCls}>Access Tier</label>
@@ -366,16 +394,24 @@ function UploadPanel({ onLogout }) {
                             </div>
                         </div>
 
-                        {/* 360 Toggle */}
-                        <div className="flex items-center justify-between bg-white/5 border border-white/10 rounded-xl px-4 py-3">
-                            <div>
-                                <p className="text-white text-sm font-semibold">360° VR Video</p>
-                                <p className="text-white/40 text-xs">Enables spatial VR playback</p>
+                        {/* Format info banner — replaces the old 360 toggle */}
+                        <div className="flex items-center gap-3 bg-white/[0.03] border border-white/8 rounded-xl px-4 py-3">
+                            <div className="w-8 h-8 rounded-lg bg-[#7B61FF]/20 border border-[#7B61FF]/30 flex items-center justify-center shrink-0">
+                                <span className="text-sm">
+                                    {VR_FORMAT_MAP[form.vr_format]?.format === '360' ? '🌐'
+                                    : VR_FORMAT_MAP[form.vr_format]?.format === '180' ? '👁'
+                                    : '📺'}
+                                </span>
                             </div>
-                            <button type="button" onClick={() => set('is_360', !form.is_360)}
-                                className={`w-12 h-6 rounded-full transition-all ${form.is_360 ? 'bg-[#00E6FF]' : 'bg-white/10'}`}>
-                                <div className={`w-5 h-5 rounded-full bg-white shadow-md transform transition-transform mx-0.5 ${form.is_360 ? 'translate-x-6' : 'translate-x-0'}`}/>
-                            </button>
+                            <div>
+                                <p className="text-white text-xs font-bold">
+                                    {VR_FORMAT_OPTIONS.find(o => o.value === form.vr_format)?.label || 'Standard'}
+                                </p>
+                                <p className="text-white/30 text-[10px]">
+                                    Format: <span className="text-[#00E6FF]">{VR_FORMAT_MAP[form.vr_format]?.format?.toUpperCase() || 'FLAT'}</span>
+                                    {' · '}Stereo: <span className="text-[#7B61FF]">{VR_FORMAT_MAP[form.vr_format]?.stereo?.toUpperCase() || 'MONO'}</span>
+                                </p>
+                            </div>
                         </div>
 
                         {/* Drag-and-drop video file zone */}
@@ -426,10 +462,19 @@ function UploadPanel({ onLogout }) {
                                 result.success ? 'border-green-400/30 bg-green-400/10 text-green-400' : 'border-red-400/30 bg-red-400/10 text-red-400'
                             }`}>
                                 {result.success ? <CheckCircle size={16} className="shrink-0 mt-0.5"/> : <AlertCircle size={16} className="shrink-0 mt-0.5"/>}
-                                <div>
-                                    {result.success
-                                        ? <><strong>&#34;{result.movie?.title}&#34;</strong> uploaded to cloud storage & catalog successfully!</>
-                                        : result.error}
+                                <div className="flex-1">
+                                    {result.success ? (
+                                        <>
+                                            <strong>&quot;{result.movie?.title}&quot;</strong> uploaded!{' '}
+                                            <span className="opacity-60 text-xs">[{VR_FORMAT_OPTIONS.find(o=>o.value===result.vrFormat)?.label || 'Standard'}]</span>
+                                            <div className="mt-2">
+                                                <button type="button" onClick={() => { window.location.href = '/vr-player' }}
+                                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-green-400/20 border border-green-400/30 rounded-lg text-green-300 text-xs font-bold hover:bg-green-400/30 transition-all">
+                                                    <Play size={11} /> Play Now in VR Player
+                                                </button>
+                                            </div>
+                                        </>
+                                    ) : result.error}
                                 </div>
                             </div>
                         )}
@@ -533,6 +578,7 @@ function UploadPanel({ onLogout }) {
 
 // ── Main Media Page ──────────────────────────────────────────────
 export default function Media() {
+    const navigate = useNavigate()
     const { movies } = useStore()
     const [devUnlocked, setDevUnlocked] = useState(false)
     const [showGate, setShowGate] = useState(false)
@@ -550,22 +596,39 @@ export default function Media() {
         return () => { window.removeEventListener('storage', sync); clearInterval(t) }
     }, [])
 
-    // Merge API movies + cloud-uploaded movies; use thumbnail_url as display image
+    // Helper: can this cloud entry actually be played right now?
+    const canPlay = (f) => !!window.__vrVideoBlobs?.[f.id]
+
+    // Navigate to VR player with the selected video
+    const playVideo = (movie) => {
+        if (movie.isCloud) {
+            // Store the raw entry ID (without 'cloud_' prefix) so VRPlayer can find it
+            const rawId = String(movie.id).replace('cloud_', '')
+            localStorage.setItem('cymax_selected_video', rawId)
+        } else {
+            localStorage.removeItem('cymax_selected_video')
+        }
+        navigate('/vr-player')
+    }
+
+    // Cloud-uploaded videos first (newest first), then API catalog
     const allMovies = [
-        ...(movies || []),
         ...cloudMovies.map(f => ({
             id:            `cloud_${f.id}`,
+            _rawId:        f.id,
             title:         f.title,
             genre:         f.genre,
             rating:        f.rating,
             duration:      null,
-            status:        'Live',
+            status:        canPlay(f) ? 'Ready' : 'Offline',
             thumb:         f.thumb || null,
             thumbnail_url: f.thumb || null,
             is_360:        f.is_360,
             tier:          f.tier,
             isCloud:       true,
-        }))
+            playable:      canPlay(f),
+        })),
+        ...(movies || []).map(m => ({ ...m, isCloud: false, playable: true })),
     ]
 
     return (
@@ -626,8 +689,18 @@ export default function Media() {
                             initial={{ opacity: 0, y: 20 }}
                             animate={{ opacity: 1, y: 0 }}
                             transition={{ delay: i * 0.05 }}
-                            className="group relative rounded-2xl overflow-hidden border border-white/10 hover:border-white/25 transition-all bg-[#0a0a0a] cursor-pointer"
+                            onClick={() => playVideo(movie)}
+                            className="group relative rounded-2xl overflow-hidden border border-white/10 hover:border-[#7B61FF]/40 transition-all bg-[#0a0a0a] cursor-pointer"
                         >
+                            {/* NEW badge for cloud videos */}
+                            {movie.isCloud && (
+                                <div className="absolute top-2 left-2 z-10">
+                                    <span className="text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-[#7B61FF]/80 text-white border border-[#7B61FF]">
+                                        ☁ Uploaded
+                                    </span>
+                                </div>
+                            )}
+
                             {/* Thumbnail */}
                             <div className="aspect-[3/4] relative">
                                 {movie.thumb || movie.thumbnail_url ? (
@@ -639,20 +712,41 @@ export default function Media() {
                                     </div>
                                 )}
 
-                                {/* Hover play */}
-                                <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-black/30">
-                                    <div className="w-10 h-10 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center">
-                                        <Play size={16} className="text-white ml-0.5" fill="white" />
+                                {/* Play overlay — always visible for playable, dimmed for offline */}
+                                <div className={`absolute inset-0 flex items-center justify-center transition-all bg-black/30 ${
+                                    movie.playable ? 'opacity-0 group-hover:opacity-100' : 'opacity-60'
+                                }`}>
+                                    <div className={`w-12 h-12 rounded-full backdrop-blur-sm flex flex-col items-center justify-center gap-0.5 border ${
+                                        movie.playable
+                                            ? 'bg-gradient-to-br from-[#7B61FF] to-[#00E6FF] border-white/20 shadow-[0_0_24px_rgba(123,97,255,0.7)]'
+                                            : 'bg-white/10 border-white/10'
+                                    }`}>
+                                        <Play size={18} className="text-white ml-0.5" fill="white" />
+                                        {!movie.playable && (
+                                            <span className="text-[7px] text-white/60 font-bold">OFFLINE</span>
+                                        )}
                                     </div>
                                 </div>
 
                                 {/* Status badge */}
                                 <div className="absolute top-2 right-2">
-                                    <span className={`text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full
-                                        ${movie.status === 'Live' ? 'bg-green-400/20 text-green-400 border border-green-400/30' : 'bg-yellow-400/20 text-yellow-400 border border-yellow-400/30'}`}>
+                                    <span className={`text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full ${
+                                        movie.status === 'Ready'
+                                            ? 'bg-green-400/20 text-green-400 border border-green-400/30'
+                                            : movie.status === 'Offline'
+                                            ? 'bg-orange-400/20 text-orange-400 border border-orange-400/30'
+                                            : 'bg-blue-400/20 text-blue-400 border border-blue-400/30'
+                                    }`}>
                                         {movie.status || 'Live'}
                                     </span>
                                 </div>
+
+                                {/* 360 badge */}
+                                {movie.is_360 && (
+                                    <div className="absolute bottom-2 left-2">
+                                        <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-[#00E6FF]/20 text-[#00E6FF] border border-[#00E6FF]/30">360°</span>
+                                    </div>
+                                )}
                             </div>
 
                             {/* Info */}
@@ -663,6 +757,10 @@ export default function Media() {
                                     {movie.duration && <span className="text-[9px] text-white/40 flex items-center gap-0.5"><Clock size={8}/>{movie.duration}m</span>}
                                     {movie.genre && <span className="text-[9px] text-white/30 flex items-center gap-0.5"><Tag size={8}/>{movie.genre}</span>}
                                 </div>
+                                {/* Click-to-play hint */}
+                                <p className="text-[8px] text-white/20 mt-1.5 font-mono">
+                                    {movie.playable ? '▶ Click to play in VR Player' : '⚠ Re-upload to play'}
+                                </p>
                             </div>
                         </motion.div>
                     ))}
