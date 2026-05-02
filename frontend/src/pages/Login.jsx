@@ -69,117 +69,7 @@ function decodeJwtPayload(token) {
     return JSON.parse(atob(payload))
 }
 
-// ── Social Login Modal (Apple stays manual; Google uses One Tap) ───
-function SocialLoginModal({ provider, onClose }) {
-    const [loading, setLoading] = useState(false)
-    const [done, setDone] = useState(false)
-    const [error, setError] = useState('')
-    const navigate = useNavigate()
-    const { setToken, setUser } = useStore()
-    const requestInFlight = useRef(false)
 
-    const handleGoogleCredential = async (response) => {
-        // response.credential is the JWT ID token
-        setLoading(true)
-        try {
-            // Decode the JWT to get user info (base64 middle section)
-            const payload = JSON.parse(atob(response.credential.split('.')[1]))
-            const { name, email, sub, picture } = payload
-
-            // Save to store — in production send credential to backend for verification
-            setUser({ username: name, email, picture, providerId: sub, provider: 'google' })
-            setToken(`google_${sub}`) // Replace with real backend token exchange
-            setDone(true)
-            setTimeout(() => navigate('/dashboard'), 900)
-        } catch (e) {
-            console.error('Google credential decode failed', e)
-        } finally {
-            setLoading(false)
-        }
-    }
-
-    const handleAppleLogin = async (e) => {
-        e.preventDefault()
-        setLoading(true)
-        await new Promise(r => setTimeout(r, 1500))
-        setLoading(false)
-        setDone(true)
-        setTimeout(() => navigate('/dashboard'), 1000)
-    }
-
-    return (
-        <motion.div
-            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[300] flex items-center justify-center bg-black/85 backdrop-blur-md"
-            onClick={onClose}
-        >
-            <motion.div
-                initial={{ scale: 0.9, y: 16 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, opacity: 0 }}
-                onClick={e => e.stopPropagation()}
-                className="relative w-full max-w-sm mx-6 bg-[#0d0d0d] border border-white/10 rounded-3xl p-8 shadow-2xl overflow-hidden"
-            >
-                <div className="absolute -top-14 left-1/2 -translate-x-1/2 w-48 h-24 bg-[#7B61FF]/20 blur-3xl rounded-full pointer-events-none" />
-                <button onClick={onClose} className="absolute top-4 right-4 text-white/30 hover:text-white transition-colors">
-                    <X size={16} />
-                </button>
-
-                <div className="flex flex-col items-center mb-6">
-                    <div className={`w-12 h-12 rounded-2xl flex items-center justify-center mb-3 ${provider === 'Google' ? 'bg-white' : 'bg-black border border-white/20'}`}>
-                        {provider === 'Google' ? <GoogleIcon /> : <AppleIcon />}
-                    </div>
-                    <h3 className="text-white font-black text-xl">Continue with {provider}</h3>
-                    <p className="text-white/40 text-sm mt-1 text-center">
-                        Sign in securely using your {provider} account
-                    </p>
-                </div>
-
-                <AnimatePresence mode="wait">
-                    {done ? (
-                        <motion.div key="done" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
-                            className="text-center py-4">
-                            <div className="w-10 h-10 rounded-full bg-green-500/20 border border-green-500/30 flex items-center justify-center mx-auto mb-3">
-                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="3"><polyline points="20 6 9 17 4 12"/></svg>
-                            </div>
-                            <p className="text-white font-bold">Authenticated!</p>
-                            <p className="text-white/40 text-sm">Redirecting to dashboard…</p>
-                        </motion.div>
-                    ) : provider === 'Google' ? (
-                        <motion.div key="google" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-                            {/* Official Google button renders here */}
-                            <div ref={googleButtonRef} className="flex justify-center w-full mb-3" />
-                            <p className="text-white/20 text-[10px] text-center mt-2">
-                                Your browser will show all your signed-in Google accounts.
-                            </p>
-                        </motion.div>
-                    ) : (
-                        <motion.form key="apple" onSubmit={handleAppleLogin} className="space-y-3">
-                            <div className="relative">
-                                <Mail size={14} className="absolute left-4 top-1/2 -translate-y-1/2 text-white/30 pointer-events-none" />
-                                <input
-                                    type="email"
-                                    placeholder="Your Apple ID email"
-                                    value={email}
-                                    onChange={e => setEmail(e.target.value)}
-                                    required
-                                    className="w-full bg-white/5 border border-white/10 rounded-xl py-3 pl-10 pr-4 text-white text-sm placeholder-white/30 focus:outline-none focus:border-[#7B61FF]/60 transition-all"
-                                />
-                            </div>
-                            <button
-                                type="submit"
-                                disabled={loading}
-                                className="w-full py-3 rounded-xl bg-black border border-white/20 text-white font-black text-sm flex items-center justify-center gap-2 transition-all hover:bg-white/5 disabled:opacity-50"
-                            >
-                                {loading ? (
-                                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                                ) : (<><AppleIcon /> Sign in with Apple</>)}
-                            </button>
-                        </motion.form>
-                    )}
-                </AnimatePresence>
-            </motion.div>
-        </motion.div>
-    )
-}
 
 // ── Reset Password Modal ─────────────────────────────────────────
 function ResetPasswordModal({ onClose }) {
@@ -302,7 +192,7 @@ export default function Login() {
                 setUser({ username: form.username, role })
                 setSubscriptionTier('premium')
                 setUserRole(role)         // stored under localStorage key 'userRole'
-                navigate('/dashboard', { replace: true })
+                navigate('/home', { replace: true })
                 return
             }
 
@@ -317,7 +207,7 @@ export default function Login() {
                     setUser(res.data.user)
                     setSubscriptionTier(res.data.user?.subscription_tier || 'free')
                     setUserRole('limited')   // API users never get media access
-                    navigate('/dashboard', { replace: true })
+                    navigate('/home', { replace: true })
                     return
                 } catch {
                     setError('Invalid credentials. Please try again.')
@@ -335,7 +225,7 @@ export default function Login() {
             setUser(res.data.user)
             setSubscriptionTier(res.data.user?.subscription_tier || 'free')
             setUserRole('limited')
-            navigate('/dashboard', { replace: true })
+            navigate('/home', { replace: true })
 
         } catch (err) {
             setError('Invalid credentials. Please try again.')
@@ -565,86 +455,81 @@ function OAuthAccountModal({ provider, onClose }) {
     const [done, setDone] = useState(false)
     const [error, setError] = useState('')
     const navigate = useNavigate()
-    const { setToken, setUser, setSubscriptionTier } = useStore()
+    const { setToken, setUser, setUserRole, setSubscriptionTier } = useStore()
     const requestInFlight = useRef(false)
+    const googleBtnRef = useRef(null)
 
+    // Handle Google Initialization & Rendering
     useEffect(() => {
-        setError('')
-    }, [provider])
+        if (provider !== 'Google') return
 
-    const finishLogin = (user, token) => {
-        setUser(user)
-        setToken(token)
-        setSubscriptionTier(user?.subscription_tier || 'premium')
-        setDone(true)
-        setTimeout(() => navigate('/dashboard', { replace: true }), 900)
-    }
+        let mounted = true
+        const startGoogle = async () => {
+            try {
+                setLoading(true)
+                await loadExternalScript('https://accounts.google.com/gsi/client', 'google')
+                if (!mounted) return
 
-    const handleGoogleLogin = async () => {
-        if (requestInFlight.current) return
-        if (!GOOGLE_CLIENT_ID || GOOGLE_CLIENT_ID.includes('YOUR_GOOGLE_CLIENT_ID')) {
-            setError('Add VITE_GOOGLE_CLIENT_ID to enable Google account selection.')
-            return
-        }
-
-        requestInFlight.current = true
-        setError('')
-        setLoading(true)
-
-        try {
-            await loadExternalScript('https://accounts.google.com/gsi/client', 'google')
-            const credentialResponse = await new Promise((resolve, reject) => {
                 window.google?.accounts?.id?.initialize({
                     client_id: GOOGLE_CLIENT_ID,
                     callback: (response) => {
-                        if (response?.error) {
-                            reject(new Error(response.error))
-                            return
+                        if (response?.credential) {
+                            const payload = decodeJwtPayload(response.credential)
+                            finishLogin(
+                                {
+                                    username: payload.name || payload.email?.split('@')[0] || 'Google User',
+                                    email: payload.email || '',
+                                    picture: payload.picture,
+                                    providerId: payload.sub,
+                                    provider: 'google',
+                                },
+                                `google_${payload.sub || 'session'}`
+                            )
                         }
-                        resolve(response)
                     },
                     auto_select: false,
                     cancel_on_tap_outside: true,
                     context: 'signin',
                 })
 
-                if (!window.google?.accounts?.id) {
-                    reject(new Error('Google sign-in is unavailable right now.'))
-                    return
+                if (googleBtnRef.current) {
+                    window.google?.accounts?.id?.renderButton(googleBtnRef.current, {
+                        theme: 'outline',
+                        size: 'large',
+                        text: 'continue_with',
+                        shape: 'rectangular',
+                        width: 280,
+                    })
                 }
-
-                window.google.accounts.id.prompt((notification) => {
-                    const notDisplayed = notification?.isNotDisplayed?.()
-                    const skipped = notification?.isSkippedMoment?.()
-                    if (notDisplayed || skipped) {
-                        reject(new Error('Google account chooser could not be displayed. Check your Google OAuth web app origin settings.'))
-                    }
-                })
-            })
-            const payload = decodeJwtPayload(credentialResponse.credential)
-            finishLogin(
-                {
-                    username: payload.name || payload.email?.split('@')[0] || 'Google User',
-                    email: payload.email || '',
-                    picture: payload.picture,
-                    providerId: payload.sub,
-                    provider: 'google',
-                },
-                `google_${payload.sub || 'session'}`
-            )
-        } catch (e) {
-            console.error('Google sign-in failed', e)
-            setError(e.message || 'Google sign-in failed. Please try again.')
-        } finally {
-            requestInFlight.current = false
-            setLoading(false)
+                
+                // Also show the One Tap prompt if possible
+                window.google?.accounts?.id?.prompt()
+            } catch (err) {
+                console.error('Google init failed:', err)
+                setError('Failed to load Google Sign-in. Please try again.')
+            } finally {
+                if (mounted) setLoading(false)
+            }
         }
+
+        startGoogle()
+        return () => { mounted = false }
+    }, [provider])
+
+    const finishLogin = (user, token) => {
+        setUser(user)
+        setToken(token)
+        // Default social logins to 'limited' (can look but not play)
+        setUserRole('limited')
+        setSubscriptionTier('free')
+        setDone(true)
+        setTimeout(() => navigate('/home', { replace: true }), 900)
     }
 
     const handleAppleLogin = async () => {
         if (requestInFlight.current) return
         if (!APPLE_CLIENT_ID) {
-            setError('Add VITE_APPLE_CLIENT_ID and VITE_APPLE_REDIRECT_URI to enable Apple account selection.')
+            setError('Apple Sign-in is not configured yet.')
             return
         }
 
@@ -712,7 +597,7 @@ function OAuthAccountModal({ provider, onClose }) {
                     </div>
                     <h3 className="text-white font-black text-xl">Continue with {provider}</h3>
                     <p className="text-white/40 text-sm mt-1 text-center">
-                        Sign in securely using your {provider} account
+                        Securely authenticate with your {provider} account
                     </p>
                 </div>
 
@@ -723,31 +608,46 @@ function OAuthAccountModal({ provider, onClose }) {
                                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="3"><polyline points="20 6 9 17 4 12" /></svg>
                             </div>
                             <p className="text-white font-bold">Authenticated!</p>
-                            <p className="text-white/40 text-sm">Redirecting to dashboard...</p>
+                            <p className="text-white/40 text-sm">Redirecting to home...</p>
                         </motion.div>
                     ) : (
-                        <motion.div key={provider} initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-3">
-                            <button
-                                type="button"
-                                onClick={provider === 'Google' ? handleGoogleLogin : handleAppleLogin}
-                                disabled={loading}
-                                className={`w-full py-3 rounded-xl text-sm font-black flex items-center justify-center gap-2 transition-all disabled:opacity-50 ${provider === 'Google' ? 'bg-white text-[#333] hover:bg-gray-100' : 'bg-black border border-white/20 text-white hover:bg-white/5'}`}
-                            >
-                                {loading ? (
-                                    <div className={`w-4 h-4 border-2 rounded-full animate-spin ${provider === 'Google' ? 'border-black/20 border-t-black' : 'border-white/30 border-t-white'}`} />
-                                ) : (
-                                    <>{provider === 'Google' ? <GoogleIcon /> : <AppleIcon />} Continue with {provider}</>
-                                )}
-                            </button>
-                            {error && (
-                                <p className="text-red-400 text-xs flex items-start gap-2">
-                                    <AlertCircle size={12} className="shrink-0 mt-0.5" /> {error}
-                                </p>
+                        <motion.div key={provider} initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
+                            {provider === 'Google' ? (
+                                <div className="flex flex-col items-center">
+                                    <div className="min-h-[50px] flex items-center justify-center w-full bg-white/5 rounded-xl border border-white/5 p-4">
+                                        {loading ? (
+                                            <div className="flex items-center gap-3">
+                                                <div className="w-4 h-4 border-2 border-[#7B61FF]/30 border-t-[#7B61FF] rounded-full animate-spin" />
+                                                <span className="text-xs text-white/40">Loading Google context...</span>
+                                            </div>
+                                        ) : (
+                                            <div ref={googleBtnRef} />
+                                        )}
+                                    </div>
+                                </div>
+                            ) : (
+                                <button
+                                    type="button"
+                                    onClick={handleAppleLogin}
+                                    disabled={loading}
+                                    className="w-full py-3.5 rounded-xl bg-black border border-white/20 text-white font-black text-sm flex items-center justify-center gap-2 transition-all hover:bg-white/5 disabled:opacity-50"
+                                >
+                                    {loading ? (
+                                        <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                                    ) : (<><AppleIcon /> Sign in with Apple</>)}
+                                </button>
                             )}
-                            <p className="text-white/20 text-[10px] text-center mt-2">
+                            
+                            {error && (
+                                <motion.p initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} className="text-red-400 text-xs flex items-start gap-2 bg-red-500/10 p-3 rounded-lg border border-red-500/20">
+                                    <AlertCircle size={12} className="shrink-0 mt-0.5" /> {error}
+                                </motion.p>
+                            )}
+                            
+                            <p className="text-white/20 text-[10px] text-center px-4">
                                 {provider === 'Google'
-                                    ? 'Your browser will open the Google account chooser with your signed-in emails.'
-                                    : 'Apple will open its account chooser in a popup when Apple OAuth is configured.'}
+                                    ? 'The official Google account selector will be displayed above for secure authentication.'
+                                    : 'Apple will open its secure account chooser in a new window.'}
                             </p>
                         </motion.div>
                     )}

@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { Upload, Lock, Film, CheckCircle, X, Eye, EyeOff, AlertCircle, Play, Clock, Tag } from 'lucide-react'
 import useStore from '../store/useStore'
 import BackButton from '../components/BackButton'
+import { saveVideo, getVideo, deleteVideo, getAllVideoIds } from '../api/videoDb'
 
 // ── Company developer access code ───────────────────────────────
 // Enter "Demoplayer" at the access gate to unlock developer mode.
@@ -206,7 +207,7 @@ function UploadPanel({ onLogout }) {
             // Real backend call
             const apiMod = await import('../api/axios')
             const api = apiMod.default
-            await api.post('/movies/', {
+            const createRes = await api.post('/movies/', {
                 title: form.title,
                 description: form.description,
                 duration_minutes: parseInt(form.duration),
@@ -217,42 +218,65 @@ function UploadPanel({ onLogout }) {
                 required_subscription: form.required_subscription,
                 thumbnail_url: form.thumbnail_url || null,
             })
-        } catch { /* ok - also saved to cloud storage below */ }
+            
+            const movieId = createRes.data?.movie?.id;
+            
+            // Generate entry ID first for fallback
+            let entryId = Date.now().toString(36);
+            if (movieId) entryId = `backend_${movieId}`;
+            
+            let cloudUrl = null;
+            
+            // Upload actual video file to backend
+            if (movieId && file) {
+                const formData = new FormData();
+                formData.append('file', file);
+                try {
+                    const uploadRes = await api.post(`/movies/${movieId}/upload`, formData, {
+                        headers: { 'Content-Type': 'multipart/form-data' }
+                    });
+                    cloudUrl = uploadRes.data?.firebase_url || null;
+                } catch (upErr) {
+                    console.error("Backend file upload failed", upErr);
+                }
+            }
 
-        // Generate entry ID first so we can register the blob URL before saving
-        const entryId = Date.now().toString(36)
+            // Fallback: Save to IndexedDB for persistence across refreshes if no cloud URL
+            if (file && !cloudUrl) {
+                await saveVideo(entryId, file)
+                const blobUrl = URL.createObjectURL(file)
+                window.__vrVideoBlobs[entryId] = blobUrl
+            }
 
-        // Create a blob URL for the local video so the player can play it this session
-        // Also revoke previous blob for same entry if it somehow existed
-        if (file) {
-            const blobUrl = URL.createObjectURL(file)
-            window.__vrVideoBlobs[entryId] = blobUrl
+            // Save to cloud storage list (persisted in localStorage)
+            const vrMapping = VR_FORMAT_MAP[form.vr_format] || { format: 'flat', stereo: 'mono' }
+            const entry = {
+                id:            entryId,
+                title:         form.title,
+                description:   form.description,
+                genre:         form.genre,
+                rating:        form.rating,
+                vr_format:     form.vr_format,
+                format:        vrMapping.format,   // 'flat' | '360' | '180'
+                stereo:        vrMapping.stereo,   // 'mono' | 'sbs' | 'tb'
+                is_360:        vrMapping.format !== 'flat',
+                tier:          form.required_subscription,
+                size:          file?.size || 0,
+                name:          file?.name || `${form.title}.mp4`,
+                thumb:         thumbBase64 || null,
+                hasLocalVideo: !!file,
+                cloudUrl:      cloudUrl,
+                uploadedAt:    new Date().toISOString(),
+            }
+            const updated = [entry, ...cloudFiles]
+            saveCloud(updated)
+
+            // Auto-select the newly uploaded video — VRPlayer will load it when navigating
+            localStorage.setItem('cymax_selected_video', entryId)
+        } catch (e) { 
+            console.error(e) 
+            // Also update local list if backend fails entirely
         }
-
-        // Save to cloud storage list (persisted in localStorage)
-        const vrMapping = VR_FORMAT_MAP[form.vr_format] || { format: 'flat', stereo: 'mono' }
-        const entry = {
-            id:            entryId,
-            title:         form.title,
-            description:   form.description,
-            genre:         form.genre,
-            rating:        form.rating,
-            vr_format:     form.vr_format,
-            format:        vrMapping.format,   // 'flat' | '360' | '180'
-            stereo:        vrMapping.stereo,   // 'mono' | 'sbs' | 'tb'
-            is_360:        vrMapping.format !== 'flat',
-            tier:          form.required_subscription,
-            size:          file?.size || 0,
-            name:          file?.name || `${form.title}.mp4`,
-            thumb:         thumbBase64 || null,
-            hasLocalVideo: !!file,
-            uploadedAt:    new Date().toISOString(),
-        }
-        const updated = [entry, ...cloudFiles]
-        saveCloud(updated)
-
-        // Auto-select the newly uploaded video — VRPlayer will load it when navigating
-        localStorage.setItem('cymax_selected_video', entryId)
 
         setResult({ success: true, movie: { title: form.title }, vrFormat: form.vr_format })
         setForm({ title: '', description: '', duration: '', genre: 'Sci-Fi', rating: 'PG', vr_format: 'mono', is_360: true, required_subscription: 'basic' })
@@ -262,7 +286,14 @@ function UploadPanel({ onLogout }) {
         setActiveTab('cloud')
     }
 
-    const deleteCloud = (id) => saveCloud(cloudFiles.filter(f => f.id !== id))
+    const deleteCloud = async (id) => {
+        await deleteVideo(id)
+        if (window.__vrVideoBlobs?.[id]) {
+            URL.revokeObjectURL(window.__vrVideoBlobs[id])
+            delete window.__vrVideoBlobs[id]
+        }
+        saveCloud(cloudFiles.filter(f => f.id !== id))
+    }
 
     const inputCls = "w-full bg-black/50 border border-white/10 rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:border-[#7B61FF]/60 placeholder-white/25"
     const labelCls = "text-xs font-bold uppercase tracking-widest text-white/40 mb-1.5 block"
@@ -588,11 +619,29 @@ export default function Media() {
 
     // Sync cloud storage whenever it changes (same tab or cross-tab)
     useEffect(() => {
-        const sync = () => {
-            try { setCloudMovies(JSON.parse(localStorage.getItem('cymax_cloud_files') || '[]')) } catch {}
+        const sync = async () => {
+            try { 
+                const metadata = JSON.parse(localStorage.getItem('cymax_cloud_files') || '[]')
+                setCloudMovies(metadata)
+                
+                // Initialize video blobs from IndexedDB if not already present in memory
+                if (!window.__vrVideoBlobs) window.__vrVideoBlobs = {}
+                const storedIds = await getAllVideoIds()
+                for (const id of storedIds) {
+                    if (!window.__vrVideoBlobs[id]) {
+                        const blob = await getVideo(id)
+                        if (blob) {
+                            window.__vrVideoBlobs[id] = URL.createObjectURL(blob)
+                        }
+                    }
+                }
+            } catch (err) {
+                console.error('Failed to sync media library:', err)
+            }
         }
+        sync()
         window.addEventListener('storage', sync)
-        const t = setInterval(sync, 1500)
+        const t = setInterval(sync, 5000) // less frequent interval since we sync on load
         return () => { window.removeEventListener('storage', sync); clearInterval(t) }
     }, [])
 

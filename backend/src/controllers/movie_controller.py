@@ -33,6 +33,7 @@ from src.models.movie import Movie, ContentRating
 from src.models.user import User, SubscriptionTier
 from src.middleware.auth_middleware import get_current_user
 from src.services.encryption_service import encryption_service
+from src.services.firebase_service import firebase_service
 
 logger = logging.getLogger(__name__)
 
@@ -431,11 +432,35 @@ async def upload_movie_file(
             input_path=temp_path,
             output_path=encrypted_path
         )
+        
+        # Upload to Firebase Storage
+        firebase_url = None
+        try:
+            # We must pass a new UploadFile or handle the file pointer.
+            # Since we just wrote to temp_path, we can just use the original file if we reset its pointer
+            await file.seek(0)
+            firebase_url = await firebase_service.upload_video(file, current_user.id)
+            logger.info(f"☁️ Uploaded to Firebase: {firebase_url}")
+        except Exception as fe:
+            logger.warning(f"⚠️ Failed to upload to Firebase (continuing with local encrypted copy): {fe}")
 
         # Update movie record
         movie.encrypted_file_path = encrypted_path
         movie.encryption_key_id = encryption_result["key_id"]
         movie.file_size_bytes = len(content)
+        if firebase_url:
+            # If movie model has a field for cloud_url, we would save it here.
+            # For now, we add it to thumbnail_url or a new field if available.
+            # Since we can't easily alter the schema here without migrations, 
+            # we'll save it to Firestore as metadata as well.
+            firebase_service.save_movie_metadata({
+                "movie_id": movie.id,
+                "title": movie.title,
+                "firebase_url": firebase_url,
+                "encryption_key_id": movie.encryption_key_id,
+                "size": movie.file_size_bytes
+            })
+            
         db.commit()
 
         # Delete original unencrypted file
@@ -450,7 +475,8 @@ async def upload_movie_file(
             "key_id": encryption_result["key_id"],
             "file_hash": encryption_result["file_hash"],
             "algorithm": encryption_result["algorithm"],
-            "encrypted_path": encrypted_path
+            "encrypted_path": encrypted_path,
+            "firebase_url": firebase_url
         })
 
     except Exception as e:

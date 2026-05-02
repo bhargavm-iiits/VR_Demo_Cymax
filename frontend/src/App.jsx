@@ -18,7 +18,7 @@ import VRPlayer from './pages/VRPlayer'
 import SystemMonitor from './pages/SystemMonitor'
 
 // ─────────────────────────────────────────────────────────────
-//  PrivateRoute — any authenticated user
+//  PrivateRoute — any authenticated user (including limited)
 // ─────────────────────────────────────────────────────────────
 function PrivateRoute({ children }) {
   const token = useStore(s => s.token)
@@ -27,18 +27,28 @@ function PrivateRoute({ children }) {
 }
 
 // ─────────────────────────────────────────────────────────────
-//  MediaRoute — ONLY role="full" (Bhargav_Cymax) can enter
-//  Reads localStorage synchronously so there is ZERO flicker.
-//  "limited" users hitting /media → instantly to /dashboard
+//  PlayerRoute — full or premium users only
 // ─────────────────────────────────────────────────────────────
-function MediaRoute({ children }) {
+function PlayerRoute({ children }) {
   const token = useStore(s => s.token)
-
-  // Synchronous read prevents any render flash before redirect
   if (!token) return <Navigate to="/login" replace />
 
-  const role = getUserRole()           // reads localStorage directly
-  if (role !== 'full') return <Navigate to="/dashboard" replace />
+  const role = getUserRole()
+  // Block 'limited' users from playing anything
+  if (role === 'limited') return <Navigate to="/home" replace />
+
+  return <MainLayout>{children}</MainLayout>
+}
+
+// ─────────────────────────────────────────────────────────────
+//  ProtectedRoute — strict admin access (full role only)
+// ─────────────────────────────────────────────────────────────
+function ProtectedRoute({ children }) {
+  const token = useStore(s => s.token)
+  if (!token) return <Navigate to="/login" replace />
+
+  const role = getUserRole()
+  if (role !== 'full') return <Navigate to="/home" replace />
 
   return <MainLayout>{children}</MainLayout>
 }
@@ -72,22 +82,24 @@ export default function App() {
         <Route path="/payment"      element={<Payment />} />
 
         {/* Standard private routes (any authenticated user) */}
-        <Route path="/dashboard"  element={<PrivateRoute><Dashboard /></PrivateRoute>} />
+        <Route path="/home"       element={<PrivateRoute><Dashboard /></PrivateRoute>} />
         <Route path="/movies"     element={<PrivateRoute><Movies /></PrivateRoute>} />
-        <Route path="/player"     element={<PrivateRoute><Player /></PrivateRoute>} />
         <Route path="/pairing"    element={<PrivateRoute><Pairing /></PrivateRoute>} />
         <Route path="/services"   element={<PrivateRoute><Services /></PrivateRoute>} />
         <Route path="/headset"    element={<PrivateRoute><HeadsetControl /></PrivateRoute>} />
         <Route path="/about"      element={<PrivateRoute><About /></PrivateRoute>} />
-        <Route path="/vr-player"  element={<PrivateRoute><VRPlayer /></PrivateRoute>} />
         <Route path="/monitor"    element={<PrivateRoute><SystemMonitor /></PrivateRoute>} />
 
-        {/* /media — FULL role only; all others instantly to /dashboard */}
-        <Route path="/media" element={<MediaRoute><Media /></MediaRoute>} />
+        {/* Restricted to Full/Premium */}
+        <Route path="/player"     element={<PlayerRoute><Player /></PlayerRoute>} />
+        <Route path="/vr-player"  element={<PlayerRoute><VRPlayer /></PlayerRoute>} />
+
+        {/* Protected route (Full role only) */}
+        <Route path="/media" element={<ProtectedRoute><Media /></ProtectedRoute>} />
 
         {/* Fallback */}
-        <Route path="/"  element={<Navigate to={token ? '/dashboard' : '/login'} replace />} />
-        <Route path="*"  element={<Navigate to={token ? '/dashboard' : '/login'} replace />} />
+        <Route path="/"  element={<Navigate to={token ? '/home' : '/login'} replace />} />
+        <Route path="*"  element={<Navigate to={token ? '/home' : '/login'} replace />} />
       </Routes>
     </Suspense>
   )

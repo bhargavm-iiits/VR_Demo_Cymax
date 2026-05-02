@@ -7,7 +7,7 @@ import { create } from 'zustand'
 // ─────────────────────────────────────────────────────────────
 export const HARDCODED_USERS = {
   Bhargav_Cymax: { password: 'Bhar@1234$.', role: 'full' },
-  premiumdemo:   { password: 'cymax@premium', role: 'limited' },
+  demoplayer: { password: 'demovideoplayer', role: 'premium' },
 }
 
 // Read role synchronously — used in ProtectedRoute to prevent flicker

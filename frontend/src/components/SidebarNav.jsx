@@ -21,18 +21,19 @@ function LogoutButton() {
 
 export default function SidebarNav() {
     const location  = useLocation()
-    // Read role — "full" = Bhargav_Cymax (sees Media Vault), "limited" = everyone else
-    const userRole  = useStore(s => s.userRole)
-    const isFullUser = userRole === 'full'
+    const userRole   = useStore(s => s.userRole)
+    const isFull     = userRole === 'full'
+    const isPremium  = userRole === 'premium' || userRole === 'full'
 
     const navItems = [
-        { icon: LayoutGrid,   path: '/dashboard', label: 'Home' },
+        { icon: LayoutGrid,   path: '/home',      label: 'Home' },
         { icon: PlaySquare,   path: '/services',  label: 'System Overview' },
         // Media Vault: ONLY shown to role="full" (Bhargav_Cymax)
-        ...(isFullUser ? [{ icon: Film, path: '/media', label: 'Media Vault 🔒' }] : []),
+        ...(isFull ? [{ icon: Film, path: '/media', label: 'Media Vault 🔒' }] : []),
         { icon: Headphones,   path: '/headset',   label: 'Headset Control' },
         { icon: Users,        path: '/about',     label: 'About Us' },
-        { icon: Clapperboard, path: '/vr-player', label: 'VR Player' },
+        // VR Player: ONLY shown to "full" or "premium" users
+        ...(isPremium ? [{ icon: Clapperboard, path: '/vr-player', label: 'VR Player' }] : []),
         { icon: Activity,     path: '/monitor',   label: 'System Monitor' },
     ]
 
@@ -45,7 +46,7 @@ export default function SidebarNav() {
                       bg-[#ffffff05] border-r border-white/5 backdrop-blur-xl"
         >
             {/* Logo */}
-            <Link to="/dashboard" className="mb-10 relative group">
+            <Link to="/home" className="mb-10 relative group">
                 <div className="w-14 h-14 rounded-2xl overflow-hidden
                               shadow-[0_0_20px_rgba(0,230,255,0.25)]
                               group-hover:scale-110 group-hover:shadow-[0_0_30px_rgba(0,230,255,0.4)]

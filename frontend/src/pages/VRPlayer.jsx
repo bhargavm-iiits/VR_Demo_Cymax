@@ -1,6 +1,7 @@
 import { useRef, useState, useEffect, useCallback } from 'react'
 import { Canvas, useFrame } from '@react-three/fiber'
 import { Stars, OrbitControls } from '@react-three/drei'
+import { VRButton, XR } from '@react-three/xr'
 import * as THREE from 'three'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
@@ -9,6 +10,7 @@ import {
     ChevronLeft, ChevronRight, Loader2, Eye, Layout, Columns, Rows
 } from 'lucide-react'
 import BackButton from '../components/BackButton'
+import { getVideo, getAllVideoIds } from '../api/videoDb'
 
 /* ─────────────────────────────────────────────────────────────
    Local video catalog — uses files already in /public
@@ -174,34 +176,39 @@ function VideoPlane({ texture, stereo }) {
 ──────────────────────────────────────────────────────────────*/
 function VRScene({ texture, format, stereo }) {
     return (
-        <Canvas
-            key={`${format}-${stereo}`}
-            camera={format === '360' || format === '180'
-                ? { position: [0, 0, 0.001], fov: 75 }
-                : { position: [0, 0, 1], fov: 70 }
-            }
-            gl={{
-                antialias: true,
-                powerPreference: 'high-performance',   // request dGPU for 8K
-                alpha: false,
-                stencil: false,
-                depth: false,
-            }}
-            style={{ position: 'absolute', inset: 0, background: '#000' }}
-        >
-            {format === '360' && <VideoSphere texture={texture} stereo={stereo} />}
-            {format === '180' && <VideoHalfSphere texture={texture} stereo={stereo} />}
-            {format === 'flat' && <VideoPlane texture={texture} stereo={stereo} />}
-            <Stars radius={300} depth={60} count={1000} factor={7} saturation={0} fade speed={0.5} />
-            {(format === '360' || format === '180') && (
-                <OrbitControls
-                    enableZoom={false}
-                    enablePan={false}
-                    rotateSpeed={-0.4}
-                    autoRotate={false}
-                />
-            )}
-        </Canvas>
+        <>
+            <VRButton id="custom-vr-button" style={{ display: 'none' }} />
+            <Canvas
+                key={`${format}-${stereo}`}
+                camera={format === '360' || format === '180'
+                    ? { position: [0, 0, 0.001], fov: 75 }
+                    : { position: [0, 0, 1], fov: 70 }
+                }
+                gl={{
+                    antialias: true,
+                    powerPreference: 'high-performance',   // request dGPU for 8K
+                    alpha: false,
+                    stencil: false,
+                    depth: false,
+                }}
+                style={{ position: 'absolute', inset: 0, background: '#000' }}
+            >
+                <XR>
+                    {format === '360' && <VideoSphere texture={texture} stereo={stereo} />}
+                    {format === '180' && <VideoHalfSphere texture={texture} stereo={stereo} />}
+                    {format === 'flat' && <VideoPlane texture={texture} stereo={stereo} />}
+                    <Stars radius={300} depth={60} count={1000} factor={7} saturation={0} fade speed={0.5} />
+                    {(format === '360' || format === '180') && (
+                        <OrbitControls
+                            enableZoom={false}
+                            enablePan={false}
+                            rotateSpeed={-0.4}
+                            autoRotate={false}
+                        />
+                    )}
+                </XR>
+            </Canvas>
+        </>
     )
 }
 
@@ -265,23 +272,37 @@ export default function VRPlayer() {
 
     /* ── Load cloud-uploaded videos into playlist ── */
     useEffect(() => {
-        const load = () => {
+        const load = async () => {
             try {
+                // Ensure in-memory blobs are restored from IndexedDB first
+                if (!window.__vrVideoBlobs) window.__vrVideoBlobs = {}
+                const storedIds = await getAllVideoIds()
+                for (const id of storedIds) {
+                    if (!window.__vrVideoBlobs[id]) {
+                        const blob = await getVideo(id)
+                        if (blob) {
+                            window.__vrVideoBlobs[id] = URL.createObjectURL(blob)
+                        }
+                    }
+                }
+
                 const stored = JSON.parse(localStorage.getItem('cymax_cloud_files') || '[]')
                 const mapped = stored.map((f) => ({
                     id:      `cloud_${f.id}`,
                     _rawId:  f.id,
                     title:   f.title || 'Uploaded Video',
                     genre:   `${f.genre || 'VR'} · Uploaded`,
-                    // Use saved format/stereo from upload — KEY FIX
                     format:  f.format || (f.is_360 ? '360' : 'flat'),
                     stereo:  f.stereo || 'mono',
-                    src:     window.__vrVideoBlobs?.[f.id] || null,
+                    src:     f.cloudUrl || window.__vrVideoBlobs?.[f.id] || null,
                     poster:  f.thumb || null,
                     isCloud: true,
                 })).filter(v => v.src)
                 setCloudVideos(mapped)
-            } catch { setCloudVideos([]) }
+            } catch (err) { 
+                console.error('Failed to load media library:', err)
+                setCloudVideos([]) 
+            }
         }
         load()
         const t = setInterval(load, 2000)
@@ -324,6 +345,10 @@ export default function VRPlayer() {
             }
         }
         const onMeta     = () => setDuration(vid.duration)
+        const onError    = (e) => {
+            console.error('Video Error:', vid.error)
+            setLoading(false) // Stop buffering spinner so error can be seen
+        }
 
         vid.addEventListener('canplay',         onCanPlay)
         vid.addEventListener('waiting',          onWaiting)
@@ -332,12 +357,14 @@ export default function VRPlayer() {
         vid.addEventListener('ended',            onEnded)
         vid.addEventListener('timeupdate',       onTime)
         vid.addEventListener('loadedmetadata',   onMeta)
+        vid.addEventListener('error',            onError)
 
-        // Build VideoTexture — 8K optimized: no format lock, use sRGB colorspace
+        // Build VideoTexture — 8K optimized
         const tex = new THREE.VideoTexture(vid)
         tex.minFilter    = THREE.LinearFilter
         tex.magFilter    = THREE.LinearFilter
-        tex.colorSpace   = THREE.SRGBColorSpace  // correct HDR / wide-color for 8K
+        tex.colorSpace   = THREE.SRGBColorSpace
+        tex.generateMipmaps = false // Optimization for large video textures
 
         vidRef.current = vid
         setTexture(tex)
@@ -353,24 +380,33 @@ export default function VRPlayer() {
             vid.removeEventListener('ended',           onEnded)
             vid.removeEventListener('timeupdate',      onTime)
             vid.removeEventListener('loadedmetadata',  onMeta)
+            vid.removeEventListener('error',           onError)
         }
     }, [])
 
     /* ── Load source whenever selection changes ── */
     useEffect(() => {
         const vid = vidRef.current
-        if (!vid) return
+        if (!vid || !current?.src) return
+        
+        console.log('Loading source:', current.src.substring(0, 30) + '...', 'ID:', current.id)
+        
+        const prevSrc = vid.src
+        if (prevSrc === current.src) return // Already loading this
+
         vid.pause()
         setPlaying(false)
         setLoading(true)
         setProgress(0)
         setCurrentTime(0)
         setDuration(0)
+             
         vid.src  = current.src
         vid.load()
+        
         setFormat(current.format || 'flat')
         setStereo(current.stereo || 'mono')
-    }, [current])
+    }, [current.src, current.format, current.stereo, current.id]) // More precise dependencies
 
     /* ── Sync volume / mute ── */
     useEffect(() => {
@@ -395,6 +431,15 @@ export default function VRPlayer() {
         if (!vid) return
         if (vid.paused) {
             vid.play().catch(e => console.warn('play() blocked:', e))
+            
+            // Auto-trigger VR mode when "Play" is clicked if supported
+            if ('xr' in navigator) {
+                // VRButton creates a button with id="VRButton" by default, but we added id="custom-vr-button"
+                const vrBtn = document.getElementById('VRButton') || document.getElementById('custom-vr-button')
+                if (vrBtn && vrBtn.innerText && vrBtn.innerText.toUpperCase().includes('ENTER VR')) {
+                    vrBtn.click()
+                }
+            }
         } else {
             vid.pause()
         }
