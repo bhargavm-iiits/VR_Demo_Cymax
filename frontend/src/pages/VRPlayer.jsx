@@ -223,9 +223,23 @@ function SmartControls({ format }) {
 }
 
 /* ─────────────────────────────────────────────────────────────
+   XRSync — Forces the video to resume when WebXR session starts
+──────────────────────────────────────────────────────────────*/
+function XRSync({ vidRef }) {
+    const { isPresenting } = useXR()
+    useEffect(() => {
+        // Meta Quest browser suspends video on XR transition. Force play when presenting.
+        if (isPresenting && vidRef && vidRef.current && vidRef.current.paused) {
+            vidRef.current.play().catch(e => console.warn('WebXR sync play blocked:', e))
+        }
+    }, [isPresenting, vidRef])
+    return null
+}
+
+/* ─────────────────────────────────────────────────────────────
    VR Canvas Scene — key forces full remount on mode change
 ──────────────────────────────────────────────────────────────*/
-function VRScene({ texture, format, stereo }) {
+function VRScene({ texture, format, stereo, vidRef }) {
     return (
         <>
             {/* Render VRButton visibly so user can explicitly click it if auto-trigger fails */}
@@ -248,8 +262,9 @@ function VRScene({ texture, format, stereo }) {
                 }}
                 style={{ position: 'absolute', inset: 0, background: '#000' }}
             >
-                {/* foveation={0} requests maximum resolution across the entire FOV in Meta Quest */}
-                <XR foveation={0}>
+                {/* Removed foveation={0} as it causes WebGL allocation crashes in newer Quest OS updates */}
+                <XR>
+                    <XRSync vidRef={vidRef} />
                     {format === '360' && <VideoSphere texture={texture} stereo={stereo} />}
                     {format === '180' && <VideoHalfSphere texture={texture} stereo={stereo} />}
                     {format === 'flat' && <VideoPlane texture={texture} stereo={stereo} />}
@@ -616,7 +631,7 @@ export default function VRPlayer() {
                             >
                                 {/* Three.js canvas */}
                                 {texture && (
-                                    <VRScene texture={texture} format={format} stereo={stereo} />
+                                    <VRScene texture={texture} format={format} stereo={stereo} vidRef={vidRef} />
                                 )}
 
                                 {/* Buffering spinner */}
