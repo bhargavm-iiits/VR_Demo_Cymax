@@ -104,6 +104,12 @@ function VideoSphere({ texture, stereo }) {
         if (!meshRef.current) return
         if (!applied.current && texture) {
             applyStereoMapping(texture, stereo)
+            // Enhance texture quality for 8K
+            texture.generateMipmaps = false
+            texture.minFilter = THREE.LinearFilter
+            texture.magFilter = THREE.LinearFilter
+            texture.anisotropy = 16
+            
             meshRef.current.material.map = texture
             meshRef.current.material.needsUpdate = true
             applied.current = true
@@ -113,8 +119,9 @@ function VideoSphere({ texture, stereo }) {
 
     return (
         <mesh ref={meshRef} scale={[-1, 1, 1]}>
-            <sphereGeometry args={[500, 60, 40]} />
-            <meshBasicMaterial side={THREE.BackSide} />
+            {/* 8K Quality: Increased segment count from 60x40 to 128x128 for smoother sphere projection */}
+            <sphereGeometry args={[500, 128, 128]} />
+            <meshBasicMaterial side={THREE.BackSide} toneMapped={false} />
         </mesh>
     )
 }
@@ -130,6 +137,12 @@ function VideoHalfSphere({ texture, stereo }) {
         if (!meshRef.current) return
         if (!applied.current && texture) {
             applyStereoMapping(texture, stereo)
+            // Enhance texture quality for 8K
+            texture.generateMipmaps = false
+            texture.minFilter = THREE.LinearFilter
+            texture.magFilter = THREE.LinearFilter
+            texture.anisotropy = 16
+
             meshRef.current.material.map = texture
             meshRef.current.material.needsUpdate = true
             applied.current = true
@@ -139,8 +152,9 @@ function VideoHalfSphere({ texture, stereo }) {
 
     return (
         <mesh ref={meshRef} scale={[-1, 1, 1]} rotation={[0, -Math.PI / 2, 0]}>
-            <sphereGeometry args={[500, 60, 40, 0, Math.PI]} />
-            <meshBasicMaterial side={THREE.BackSide} />
+            {/* 8K Quality: Increased segment count from 60x40 to 128x128 */}
+            <sphereGeometry args={[500, 128, 128, 0, Math.PI]} />
+            <meshBasicMaterial side={THREE.BackSide} toneMapped={false} />
         </mesh>
     )
 }
@@ -214,7 +228,11 @@ function SmartControls({ format }) {
 function VRScene({ texture, format, stereo }) {
     return (
         <>
-            <VRButton id="custom-vr-button" style={{ display: 'none' }} />
+            {/* Render VRButton visibly so user can explicitly click it if auto-trigger fails */}
+            <VRButton 
+                id="custom-vr-button" 
+                style={{ position: 'absolute', bottom: '100px', left: '50%', transform: 'translateX(-50%)', zIndex: 50, padding: '12px 24px', background: '#7B61FF', color: 'white', borderRadius: '24px', fontWeight: 'bold', border: '1px solid rgba(255,255,255,0.2)', cursor: 'pointer', boxShadow: '0 0 20px rgba(123,97,255,0.6)' }} 
+            />
             <Canvas
                 key={`${format}-${stereo}`}
                 camera={format === '360' || format === '180'
@@ -230,7 +248,8 @@ function VRScene({ texture, format, stereo }) {
                 }}
                 style={{ position: 'absolute', inset: 0, background: '#000' }}
             >
-                <XR>
+                {/* foveation={0} requests maximum resolution across the entire FOV in Meta Quest */}
+                <XR foveation={0}>
                     {format === '360' && <VideoSphere texture={texture} stereo={stereo} />}
                     {format === '180' && <VideoHalfSphere texture={texture} stereo={stereo} />}
                     {format === 'flat' && <VideoPlane texture={texture} stereo={stereo} />}
@@ -294,7 +313,7 @@ export default function VRPlayer() {
     const [progress,     setProgress]     = useState(0)
     const [duration,     setDuration]     = useState(0)
     const [currentTime,  setCurrentTime]  = useState(0)
-    const [format,       setFormat]       = useState(current.format || 'flat')
+    const [format,       setFormat]       = useState('360') // Force 360 initially
     const [stereo,       setStereo]       = useState(current.stereo || 'mono')
     const [fullscreen,   setFullscreen]   = useState(false)
     const [showControls, setShowControls] = useState(true)
@@ -437,7 +456,8 @@ export default function VRPlayer() {
         vid.src  = current.src
         vid.load()
         
-        setFormat(current.format || 'flat')
+        // Always force 360 format as requested by user to prevent "playing just as a window"
+        setFormat('360')
         setStereo(current.stereo || 'mono')
     }, [current.src, current.format, current.stereo, current.id]) // More precise dependencies
 
