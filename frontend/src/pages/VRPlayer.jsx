@@ -1,6 +1,6 @@
 import { useRef, useState, useEffect, useCallback } from 'react'
 import { Canvas, useFrame } from '@react-three/fiber'
-import { Stars, OrbitControls } from '@react-three/drei'
+import { Stars, OrbitControls, DeviceOrientationControls } from '@react-three/drei'
 import { VRButton, XR, useXR } from '@react-three/xr'
 import * as THREE from 'three'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -173,18 +173,37 @@ function VideoPlane({ texture, stereo }) {
 
 /* ─────────────────────────────────────────────────────────────
    Smart Controls — disables OrbitControls while in VR for head tracking
+   and enables Gyroscope (DeviceOrientation) for mobile auto-headtracking
 ──────────────────────────────────────────────────────────────*/
 function SmartControls({ format }) {
     const { isPresenting } = useXR()
-    if (format !== '360' && format !== '180') return null;
+    const [useGyro, setUseGyro] = useState(false)
     
-    return (
+    useEffect(() => {
+        const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+        
+        const handlePermission = () => setUseGyro(true);
+        window.addEventListener('gyro-permission-granted', handlePermission);
+        
+        // On Android, permission is usually granted by default
+        if (isMobile && typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission !== 'function') {
+            setUseGyro(true);
+        }
+        
+        return () => window.removeEventListener('gyro-permission-granted', handlePermission);
+    }, [])
+
+    if (format !== '360' && format !== '180') return null;
+    if (isPresenting) return null; // WebXR handles native head tracking
+    
+    return useGyro ? (
+        <DeviceOrientationControls />
+    ) : (
         <OrbitControls
             enableZoom={false}
             enablePan={false}
             rotateSpeed={-0.4}
             autoRotate={false}
-            enabled={!isPresenting}
         />
     )
 }
@@ -442,6 +461,15 @@ export default function VRPlayer() {
         if (!vid) return
         if (vid.paused) {
             vid.play().catch(e => console.warn('play() blocked:', e))
+            
+            // Request device orientation permission for mobile auto headtracking (iOS 13+)
+            if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+                DeviceOrientationEvent.requestPermission().then(response => {
+                    if (response === 'granted') {
+                        window.dispatchEvent(new Event('gyro-permission-granted'))
+                    }
+                }).catch(console.error)
+            }
             
             // Auto-trigger VR mode when "Play" is clicked if supported
             if ('xr' in navigator) {
