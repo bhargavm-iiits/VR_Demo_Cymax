@@ -1,7 +1,7 @@
 import { useRef, useState, useEffect, useCallback } from 'react'
 import { Canvas, useFrame } from '@react-three/fiber'
 import { Stars, OrbitControls } from '@react-three/drei'
-import { VRButton, XR } from '@react-three/xr'
+import { VRButton, XR, useXR } from '@react-three/xr'
 import * as THREE from 'three'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
@@ -172,6 +172,24 @@ function VideoPlane({ texture, stereo }) {
 }
 
 /* ─────────────────────────────────────────────────────────────
+   Smart Controls — disables OrbitControls while in VR for head tracking
+──────────────────────────────────────────────────────────────*/
+function SmartControls({ format }) {
+    const { isPresenting } = useXR()
+    if (format !== '360' && format !== '180') return null;
+    
+    return (
+        <OrbitControls
+            enableZoom={false}
+            enablePan={false}
+            rotateSpeed={-0.4}
+            autoRotate={false}
+            enabled={!isPresenting}
+        />
+    )
+}
+
+/* ─────────────────────────────────────────────────────────────
    VR Canvas Scene — key forces full remount on mode change
 ──────────────────────────────────────────────────────────────*/
 function VRScene({ texture, format, stereo }) {
@@ -198,14 +216,7 @@ function VRScene({ texture, format, stereo }) {
                     {format === '180' && <VideoHalfSphere texture={texture} stereo={stereo} />}
                     {format === 'flat' && <VideoPlane texture={texture} stereo={stereo} />}
                     <Stars radius={300} depth={60} count={1000} factor={7} saturation={0} fade speed={0.5} />
-                    {(format === '360' || format === '180') && (
-                        <OrbitControls
-                            enableZoom={false}
-                            enablePan={false}
-                            rotateSpeed={-0.4}
-                            autoRotate={false}
-                        />
-                    )}
+                    <SmartControls format={format} />
                 </XR>
             </Canvas>
         </>
