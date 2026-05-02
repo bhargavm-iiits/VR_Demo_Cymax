@@ -114,7 +114,7 @@ function VideoSphere({ texture, stereo }) {
             meshRef.current.material.needsUpdate = true
             applied.current = true
         }
-        if (texture) texture.needsUpdate = true
+        // Removed forced texture.needsUpdate = true to prevent Meta Quest WebGL crashing
     })
 
     return (
@@ -147,7 +147,7 @@ function VideoHalfSphere({ texture, stereo }) {
             meshRef.current.material.needsUpdate = true
             applied.current = true
         }
-        if (texture) texture.needsUpdate = true
+        // Removed forced texture.needsUpdate = true to prevent Meta Quest WebGL crashing
     })
 
     return (
@@ -174,7 +174,7 @@ function VideoPlane({ texture, stereo }) {
             meshRef.current.material.needsUpdate = true
             applied.current = true
         }
-        if (texture) texture.needsUpdate = true
+        // Removed forced texture.needsUpdate = true to prevent Meta Quest WebGL crashing
     })
 
     return (
@@ -378,9 +378,10 @@ export default function VRPlayer() {
     useEffect(() => {
         const vid = document.createElement('video')
         vid.playsInline  = true
+        vid.setAttribute('webkit-playsinline', 'webkit-playsinline') // Safari/iOS/Quest compatibility
         vid.loop         = false
         vid.volume       = 0.8
-        vid.crossOrigin  = 'anonymous'   // needed for network sources
+        // Removed crossOrigin='anonymous' to prevent strict CORS blocking on blob: URLs in Meta Quest Browser
         vid.style.display = 'none'       // Hide it from UI
         document.body.appendChild(vid)   // Must be in DOM for Quest VR playback
 
