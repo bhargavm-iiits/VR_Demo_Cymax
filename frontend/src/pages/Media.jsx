@@ -203,6 +203,9 @@ function UploadPanel({ onLogout }) {
             }
         }
 
+        let movieId = null;
+        let cloudUrl = null;
+        
         try {
             // Real backend call
             const apiMod = await import('../api/axios')
@@ -219,13 +222,7 @@ function UploadPanel({ onLogout }) {
                 thumbnail_url: form.thumbnail_url || null,
             })
             
-            const movieId = createRes.data?.movie?.id;
-            
-            // Generate entry ID first for fallback
-            let entryId = Date.now().toString(36);
-            if (movieId) entryId = `backend_${movieId}`;
-            
-            let cloudUrl = null;
+            movieId = createRes.data?.movie?.id;
             
             // Upload actual video file to backend
             if (movieId && file) {
@@ -240,43 +237,46 @@ function UploadPanel({ onLogout }) {
                     console.error("Backend file upload failed", upErr);
                 }
             }
-
-            // Fallback: Save to IndexedDB for persistence across refreshes if no cloud URL
-            if (file && !cloudUrl) {
-                await saveVideo(entryId, file)
-                const blobUrl = URL.createObjectURL(file)
-                window.__vrVideoBlobs[entryId] = blobUrl
-            }
-
-            // Save to cloud storage list (persisted in localStorage)
-            const vrMapping = VR_FORMAT_MAP[form.vr_format] || { format: 'flat', stereo: 'mono' }
-            const entry = {
-                id:            entryId,
-                title:         form.title,
-                description:   form.description,
-                genre:         form.genre,
-                rating:        form.rating,
-                vr_format:     form.vr_format,
-                format:        vrMapping.format,   // 'flat' | '360' | '180'
-                stereo:        vrMapping.stereo,   // 'mono' | 'sbs' | 'tb'
-                is_360:        vrMapping.format !== 'flat',
-                tier:          form.required_subscription,
-                size:          file?.size || 0,
-                name:          file?.name || `${form.title}.mp4`,
-                thumb:         thumbBase64 || null,
-                hasLocalVideo: !!file,
-                cloudUrl:      cloudUrl,
-                uploadedAt:    new Date().toISOString(),
-            }
-            const updated = [entry, ...cloudFiles]
-            saveCloud(updated)
-
-            // Auto-select the newly uploaded video — VRPlayer will load it when navigating
-            localStorage.setItem('cymax_selected_video', entryId)
-        } catch (e) { 
-            console.error(e) 
-            // Also update local list if backend fails entirely
+        } catch (e) {
+            console.warn("Backend unavailable, falling back to local storage", e)
         }
+
+        // Generate entry ID first for fallback
+        let entryId = Date.now().toString(36);
+        if (movieId) entryId = `backend_${movieId}`;
+
+        // Fallback: Save to IndexedDB for persistence across refreshes if no cloud URL
+        if (file && !cloudUrl) {
+            await saveVideo(entryId, file)
+            const blobUrl = URL.createObjectURL(file)
+            window.__vrVideoBlobs[entryId] = blobUrl
+        }
+
+        // Save to cloud storage list (persisted in localStorage)
+        const vrMapping = VR_FORMAT_MAP[form.vr_format] || { format: 'flat', stereo: 'mono' }
+        const entry = {
+            id:            entryId,
+            title:         form.title,
+            description:   form.description,
+            genre:         form.genre,
+            rating:        form.rating,
+            vr_format:     form.vr_format,
+            format:        vrMapping.format,   // 'flat' | '360' | '180'
+            stereo:        vrMapping.stereo,   // 'mono' | 'sbs' | 'tb'
+            is_360:        vrMapping.format !== 'flat',
+            tier:          form.required_subscription,
+            size:          file?.size || 0,
+            name:          file?.name || `${form.title}.mp4`,
+            thumb:         thumbBase64 || null,
+            hasLocalVideo: !!file,
+            cloudUrl:      cloudUrl,
+            uploadedAt:    new Date().toISOString(),
+        }
+        const updated = [entry, ...cloudFiles]
+        saveCloud(updated)
+
+        // Auto-select the newly uploaded video — VRPlayer will load it when navigating
+        localStorage.setItem('cymax_selected_video', entryId)
 
         setResult({ success: true, movie: { title: form.title }, vrFormat: form.vr_format })
         setForm({ title: '', description: '', duration: '', genre: 'Sci-Fi', rating: 'PG', vr_format: 'mono', is_360: true, required_subscription: 'basic' })
