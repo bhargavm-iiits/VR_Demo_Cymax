@@ -362,6 +362,8 @@ export default function VRPlayer() {
         vid.loop         = false
         vid.volume       = 0.8
         vid.crossOrigin  = 'anonymous'   // needed for network sources
+        vid.style.display = 'none'       // Hide it from UI
+        document.body.appendChild(vid)   // Must be in DOM for Quest VR playback
 
         const onCanPlay  = () => setLoading(false)
         const onWaiting  = () => setLoading(true)
@@ -411,6 +413,7 @@ export default function VRPlayer() {
             vid.removeEventListener('timeupdate',      onTime)
             vid.removeEventListener('loadedmetadata',  onMeta)
             vid.removeEventListener('error',           onError)
+            if (vid.parentNode) vid.parentNode.removeChild(vid)
         }
     }, [])
 
@@ -585,9 +588,9 @@ export default function VRPlayer() {
                                     if (vid && !vid.paused) { vid.pause(); showCtrl() }
                                 }}
                                 onClick={() => {
-                                    // Debounce 160ms so double-click doesn't fire togglePlay twice
+                                    // Must be synchronous for WebXR and Video.play() user gestures!
                                     clearTimeout(clickTimer.current)
-                                    clickTimer.current = setTimeout(() => togglePlay(), 160)
+                                    togglePlay()
                                 }}
                             >
                                 {/* Three.js canvas */}
